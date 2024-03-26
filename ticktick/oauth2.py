@@ -52,7 +52,9 @@ class OAuth2:
                  session=None,
                  env_key: str = None,
                  cache_path: str = '.token-oauth',
-                 check_cache: bool = True
+                 check_cache: bool = True,
+                 web_access = False,
+                 cached_token_info = None
                  ):
         """
         Initialize the object.
@@ -65,8 +67,9 @@ class OAuth2:
             state (str): State parameter
             session (requests session): Requests session
             env_key: The environment variable name where the access token dictionary is stored as a string literal.
-            cache_path: The desired path of the file where the access token information will be stored.
+            cache_path: The desired path of the file where the access token information will be stored (or string literal if web_access TRUE)
             check_cache: Whether to check the cache file for the access token information
+            web_access: Obtaining token for web applications
 
         !!! examples
 
@@ -130,10 +133,10 @@ class OAuth2:
         self.cache = CacheHandler(cache_path)
 
         # Set the access token
-        self.access_token_info = None
+        self.access_token_info = cached_token_info
 
         # get access token
-        self.get_access_token(check_cache=check_cache, check_env=env_key)
+        self.get_access_token(check_cache=check_cache, check_env=env_key, web_access=web_access)
 
     def _get_auth_url(self):
         """
@@ -229,6 +232,36 @@ class OAuth2:
 
         return token_info
 
+    def _request_web_token_step1(self):
+        """
+        Makes the POST request to get the token and returns the token info dictionary
+
+        Docs link: https://developer.ticktick.com/api#/openapi?id=third-step
+        :return:
+        """
+
+        # Get the manual authentication from the user, and prompt for the redirected url
+        self.step1_url = self._get_auth_url()
+
+    def _request_web_token_step2(self, code):
+        # create the payload
+        payload = {
+            "client_id": self._client_id,
+            "client_secret": self._client_secret,
+            "code": code,
+            "grant_type": "authorization_code",  # currently only option
+            "scope": self._scope,
+            "redirect_uri": self._redirect_uri
+        }
+
+        # make the request
+        token_info = self._post(self.OBTAIN_TOKEN_URL, params=payload)
+
+        token_info = self._set_expire_time(token_info)
+        self.cache.write_token_to_cache(token_info)
+
+        return token_info
+
     def _post(self, url, **kwargs):
         """
         Sends an http post request with the specified url and keyword arguments.
@@ -253,7 +286,7 @@ class OAuth2:
         except ValueError:
             return response.text
 
-    def get_access_token(self, check_cache: bool = True, check_env: str = None):
+    def get_access_token(self, check_cache: bool = True, check_env: str = None, web_access: bool = False):
         """
         Retrieves the authorization token from cache or makes a new request for it.
 
@@ -308,7 +341,16 @@ class OAuth2:
                 return token_info["access_token"]
 
         # access token is not stored anywhere, request a new token
-        token_info = self._request_access_token()
+        if web_access:
+            url = self._request_web_token_step1()
+            return url
+        else:
+            token_info = self._request_access_token()
+            self.access_token_info = token_info
+            return token_info["access_token"]
+
+    def set_web_token(self, code: str = None, state: str = None):
+        token_info = self._request_web_token_step2(code, state)
         self.access_token_info = token_info
         return token_info["access_token"]
 
