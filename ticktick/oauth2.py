@@ -135,6 +135,9 @@ class OAuth2:
         # Set the access token
         self.access_token_info = cached_token_info
 
+        # Initialize step1 url
+        self.step1_url = ''
+
         # get access token
         self.get_access_token(check_cache=check_cache, check_env=env_key, web_access=web_access)
 
